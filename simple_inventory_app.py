@@ -68,7 +68,7 @@ class InventoryProcessor:
             processed_data = []
             current_date = None
             
-            # All warehouse locations
+            # All warehouse locations (stripped for robust matching)
             warehouses = [
                 'POS/الصالة',
                 'Virtual Locations/تذوق', 
@@ -82,7 +82,7 @@ class InventoryProcessor:
                 'sadat/مخزن السادات',
                 'wh-p/مخزون المنتج التام',
                 'zagel/مخزن زاجل',
-                'تحويل/المخزون',
+                'تحويل/المخزون',         # <-- will match even if there's a space in CSV!
                 'ثلاجه/المخزون', 
                 'حيدوي/المخزون',
                 'ساحل/المخزون',
@@ -91,7 +91,6 @@ class InventoryProcessor:
                 'فتحي/المخزون'
             ]
             
-            # Map each warehouse to its quantity column (get directly from the warehouse column itself!)
             warehouse_mapping = self._map_warehouses(df.columns, warehouses)
             
             for idx, row in df.iterrows():
@@ -124,15 +123,15 @@ class InventoryProcessor:
     def _map_warehouses(self, columns, warehouses):
         """
         Map each warehouse to its quantity column.
-        Now: for each warehouse, map to the column with the warehouse name directly.
+        Robust: strip spaces from both warehouse and columns for matching.
         """
         mapping = {}
+        columns_stripped = [str(col).strip() for col in columns]
         for warehouse in warehouses:
-            for i, col in enumerate(columns):
-                col_str = str(col)
-                if warehouse in col_str:
-                    # Map warehouse (using just its name after / if exists) to its own column index
-                    mapping[warehouse.split('/')[-1] if '/' in warehouse else warehouse] = i
+            warehouse_stripped = warehouse.strip()
+            for i, col in enumerate(columns_stripped):
+                if col == warehouse_stripped:
+                    mapping[warehouse_stripped.split('/')[-1] if '/' in warehouse_stripped else warehouse_stripped] = i
                     break
         return mapping
     
@@ -155,7 +154,6 @@ class InventoryProcessor:
         if not first_col or first_col == 'nan':
             return False
         
-        # Look for product code or Arabic text with data
         has_product_code = re.search(r'\[\d+\]', first_col)
         has_arabic = any('\u0600' <= char <= '\u06FF' for char in first_col)
         has_data = any(self._to_float(val) > 0 for val in row.iloc[1:] if not pd.isna(val))
@@ -163,29 +161,24 @@ class InventoryProcessor:
         return has_product_code or (has_arabic and has_data)
     
     def _extract_quantities(self, row, current_date, warehouse_mapping):
-        """Extract product quantities from each warehouse - use the mapped quantity columns directly"""
+        """Extract product quantities from each warehouse"""
         try:
             product_name = str(row.iloc[0]).strip()
             if not product_name or product_name == 'nan':
                 return []
             
             data_points = []
-            
             for warehouse_name, quantity_idx in warehouse_mapping.items():
                 if quantity_idx < len(row):
-                    # Get the quantity directly from the mapped column for the warehouse
                     quantity = self._to_float(row.iloc[quantity_idx])
-                    
-                    # Even if quantity is zero, add entry (so all warehouses are present in final summary)
+                    # even if 0, always add
                     data_points.append({
                         'Product': product_name,
                         'Date': current_date or 'Unknown',
                         'Location': warehouse_name,
                         'Quantity': quantity
                     })
-            
             return data_points
-            
         except Exception as e:
             return []
     
@@ -210,12 +203,10 @@ def main():
     st.title("Inventory Dashboard")
     st.markdown("**تتبع كميات المنتجات في جميع المخازن (كل المخازن وليس مخزن واحد فقط)**")
     
-    # File upload
     uploaded_file = st.file_uploader("ارفع ملف المخزون (CSV)", type=['csv'])
     
     if uploaded_file:
         try:
-            # Process data
             with st.spinner("جاري معالجة بيانات المخزون ..."):
                 df = pd.read_csv(uploaded_file, encoding='utf-8')
                 processor = InventoryProcessor(df)
@@ -227,50 +218,41 @@ def main():
             
             st.success(f"تم تحميل {len(data)} سجل مخزون")
             
-            # Get unique values
             products = sorted(data['Product'].unique())
             warehouses = sorted(data['Location'].unique())
             dates = sorted(data['Date'].unique())
             
             tab1, tab2, tab3 = st.tabs(["بحث بالمنتج", "بحث بالتاريخ", "تصدير البيانات"])
             
-            # --- البحث بالمنتج مع فلترة المخزن ---
+            # --- بحث المنتج مع فلترة المخزن ---
             with tab1:
                 st.header("بحث المنتج")
                 
                 col1, col2 = st.columns([2, 1])
-                
                 with col1:
                     selected_product = st.selectbox("اختر المنتج:", [""] + products, key="product_search")
-                
                 with col2:
                     date_filter = st.selectbox("فلترة بالتاريخ:", ["كل التواريخ"] + dates, key="product_date")
                 
-                # نوع الفلترة للمخزن
                 filter_type = st.radio(
                     "نوع الفلترة للمخزن:",
                     ["كل المخازن", "المخازن التي بها كمية (>0)", "اختيار يدوي"],
                     index=0
                 )
                 
-                # تجهيز البيانات حسب المنتج والتاريخ
                 product_data = pd.DataFrame()
                 filtered_warehouses = warehouses
                 if selected_product:
                     product_data = data[data['Product'] == selected_product].copy()
                     if date_filter != "كل التواريخ":
                         product_data = product_data[product_data['Date'] == date_filter]
-                    
-                    # قائمة المخازن التي بها كمية > 0
                     warehouses_with_qty = sorted(product_data[product_data['Quantity'] > 0]['Location'].unique())
                     
-                    # تحديد المخازن حسب نوع الفلترة
                     if filter_type == "كل المخازن":
                         filtered_warehouses = warehouses
                     elif filter_type == "المخازن التي بها كمية (>0)":
                         filtered_warehouses = warehouses_with_qty
                     else:
-                        # اختيار يدوي
                         filtered_warehouses = st.multiselect(
                             "حدد المخازن:",
                             warehouses,
@@ -278,10 +260,7 @@ def main():
                             key="warehouse_filter"
                         )
                     
-                    # فلترة المنتج حسب المخازن المختارة
                     product_data = product_data[product_data['Location'].isin(filtered_warehouses)]
-                    
-                    # تجهيز ملخص المخازن (كل المخازن في الفلترة حتى لو الكمية صفر)
                     warehouse_summary = (
                         pd.DataFrame({'Location': filtered_warehouses})
                         .set_index('Location')
@@ -295,7 +274,6 @@ def main():
                     
                     if not product_data.empty or len(filtered_warehouses) > 0:
                         st.markdown(f"### {selected_product}")
-                        
                         col1, col2, col3, col4 = st.columns(4)
                         with col1:
                             total_qty = warehouse_summary['Quantity'].sum()
@@ -305,7 +283,6 @@ def main():
                                 <div class="metric-text">إجمالي الكمية</div>
                             </div>
                             """, unsafe_allow_html=True)
-                        
                         with col2:
                             warehouse_count = len(filtered_warehouses)
                             st.markdown(f"""
@@ -314,7 +291,6 @@ def main():
                                 <div class="metric-text">عدد المخازن</div>
                             </div>
                             """, unsafe_allow_html=True)
-                        
                         with col3:
                             date_count = len(product_data['Date'].unique())
                             st.markdown(f"""
@@ -323,7 +299,6 @@ def main():
                                 <div class="metric-text">عدد التواريخ</div>
                             </div>
                             """, unsafe_allow_html=True)
-                        
                         with col4:
                             avg_qty = warehouse_summary['Quantity'].mean()
                             st.markdown(f"""
@@ -333,7 +308,6 @@ def main():
                             </div>
                             """, unsafe_allow_html=True)
                         
-                        # عرض كل المخازن المختارة بالكمية (حتى لو صفر)
                         st.subheader("الكميات حسب المخزن")
                         for location, row in warehouse_summary.iterrows():
                             st.markdown(f"""
@@ -342,31 +316,24 @@ def main():
                                 <div class="warehouse-quantity">{row['Quantity']:,.2f}</div>
                             </div>
                             """, unsafe_allow_html=True)
-                        
-                        # رسم بياني
                         st.bar_chart(warehouse_summary['Quantity'])
                         
-                        # Timeline if multiple dates
                         if len(product_data['Date'].unique()) > 1:
                             st.subheader("تسلسل الكميات عبر الزمن")
                             timeline_data = product_data.groupby('Date')['Quantity'].sum().reset_index()
                             st.line_chart(timeline_data.set_index('Date'))
                         
-                        # Data table showing exact values
                         st.subheader("البيانات التفصيلية")
                         display_data = product_data[['Date', 'Location', 'Quantity']].copy()
                         st.dataframe(display_data, use_container_width=True)
-                    
                     else:
                         st.info("لا توجد بيانات للمنتج أو الفلتر المحدد")
             
-            # --- البحث بالتاريخ مع فلترة المخزن ---
+            # --- بحث التاريخ مع فلترة المخزن ---
             with tab2:
                 st.header("بحث بالتاريخ")
                 
                 selected_date = st.selectbox("اختر التاريخ:", dates, key="date_search")
-                
-                # نوع الفلترة للمخزن في البحث بالتاريخ
                 filter_type_date = st.radio(
                     "نوع الفلترة للمخزن:",
                     ["كل المخازن", "المخازن التي بها كمية (>0)", "اختيار يدوي"],
@@ -378,17 +345,13 @@ def main():
                 filtered_warehouses_date = warehouses
                 if selected_date:
                     date_data = data[data['Date'] == selected_date].copy()
-                    
-                    # قائمة المخازن التي بها كمية > 0
                     warehouses_with_qty_date = sorted(date_data[date_data['Quantity'] > 0]['Location'].unique())
                     
-                    # تحديد المخازن حسب نوع الفلترة
                     if filter_type_date == "كل المخازن":
                         filtered_warehouses_date = warehouses
                     elif filter_type_date == "المخازن التي بها كمية (>0)":
                         filtered_warehouses_date = warehouses_with_qty_date
                     else:
-                        # اختيار يدوي
                         filtered_warehouses_date = st.multiselect(
                             "حدد المخازن:",
                             warehouses,
@@ -396,10 +359,7 @@ def main():
                             key="warehouse_filter_date"
                         )
                     
-                    # فلترة البيانات حسب المخازن المختارة
                     date_data = date_data[date_data['Location'].isin(filtered_warehouses_date)]
-                    
-                    # تجهيز ملخص المخازن (كل المخازن في الفلترة حتى لو الكمية صفر)
                     warehouse_dist = (
                         pd.DataFrame({'Location': filtered_warehouses_date})
                         .set_index('Location')
@@ -413,7 +373,6 @@ def main():
                     
                     if not date_data.empty or len(filtered_warehouses_date) > 0:
                         st.markdown(f"### {selected_date}")
-                        
                         col1, col2, col3, col4 = st.columns(4)
                         with col1:
                             total_products = len(date_data['Product'].unique())
@@ -423,7 +382,6 @@ def main():
                                 <div class="metric-text">عدد المنتجات</div>
                             </div>
                             """, unsafe_allow_html=True)
-                        
                         with col2:
                             total_qty = warehouse_dist['Quantity'].sum()
                             st.markdown(f"""
@@ -432,7 +390,6 @@ def main():
                                 <div class="metric-text">إجمالي الكمية</div>
                             </div>
                             """, unsafe_allow_html=True)
-                        
                         with col3:
                             total_warehouses = len(filtered_warehouses_date)
                             st.markdown(f"""
@@ -441,7 +398,6 @@ def main():
                                 <div class="metric-text">عدد المخازن</div>
                             </div>
                             """, unsafe_allow_html=True)
-                        
                         with col4:
                             avg_per_product = total_qty / total_products if total_products > 0 else 0
                             st.markdown(f"""
@@ -459,20 +415,16 @@ def main():
                                 <div class="warehouse-quantity">{row['Quantity']:,.2f}</div>
                             </div>
                             """, unsafe_allow_html=True)
-                        
                         st.bar_chart(warehouse_dist['Quantity'])
                         
-                        # أعلى المنتجات (حسب البيانات المفلترة)
                         st.subheader("أعلى المنتجات حسب الكمية")
                         top_products = date_data.groupby('Product')['Quantity'].sum().sort_values(ascending=False).head(10)
                         if not top_products.empty:
                             st.bar_chart(top_products)
                         
-                        # كل عمليات المخزون
                         st.subheader("كل عمليات المخزون")
                         display_data = date_data[['Product', 'Location', 'Quantity']].copy()
                         st.dataframe(display_data, use_container_width=True)
-                    
                     else:
                         st.info(f"لا توجد بيانات لهذا التاريخ أو الفلتر المحدد")
             
@@ -481,39 +433,31 @@ def main():
                 st.header("تصدير البيانات")
                 
                 col1, col2 = st.columns(2)
-                
                 with col1:
                     st.subheader("رسوم بيانية سريعة")
-                    
                     chart_type = st.selectbox("اختر الرسم البياني:", [
                         "أعلى 10 منتجات",
                         "توزيع المخازن", 
                         "تسلسل الكميات عبر الزمن"
                     ])
-                    
                     if st.button("عرض الرسم البياني"):
                         if chart_type == "أعلى 10 منتجات":
                             top_products = data.groupby('Product')['Quantity'].sum().sort_values(ascending=False).head(10)
                             st.bar_chart(top_products)
-                        
                         elif chart_type == "توزيع المخازن":
                             warehouse_totals = data.groupby('Location')['Quantity'].sum().sort_values(ascending=False)
                             st.bar_chart(warehouse_totals)
-                        
                         elif chart_type == "تسلسل الكميات عبر الزمن":
                             timeline = data.groupby('Date')['Quantity'].sum().reset_index()
                             st.line_chart(timeline.set_index('Date'))
-                
                 with col2:
                     st.subheader("خيارات التصدير")
-                    
                     export_option = st.selectbox("اختر نوع التصدير:", [
                         "كل البيانات",
                         "ملخص المنتجات",
                         "ملخص المخازن",
                         "ملخص التواريخ"
                     ])
-                    
                     if st.button("توليد ملف التصدير"):
                         if export_option == "كل البيانات":
                             export_data = data
@@ -529,21 +473,17 @@ def main():
                                 'Product': 'nunique',
                                 'Date': 'nunique'
                             }).round(2)
-                        else:  # ملخص التواريخ
+                        else:
                             export_data = data.groupby('Date').agg({
                                 'Quantity': ['sum', 'mean', 'count'],
                                 'Product': 'nunique',
                                 'Location': 'nunique'
                             }).round(2)
-                        
-                        # Download options
                         csv_data = export_data.to_csv(index=True, encoding='utf-8-sig')
                         excel_buffer = io.BytesIO()
                         export_data.to_excel(excel_buffer, index=True, engine='openpyxl')
                         excel_buffer.seek(0)
-                        
                         col_a, col_b = st.columns(2)
-                        
                         with col_a:
                             st.download_button(
                                 label="تحميل CSV",
@@ -551,7 +491,6 @@ def main():
                                 file_name=f"{export_option.lower().replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                                 mime="text/csv"
                             )
-                        
                         with col_b:
                             st.download_button(
                                 label="تحميل Excel", 
@@ -559,17 +498,14 @@ def main():
                                 file_name=f"{export_option.lower().replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             )
-                        
                         st.success("التصدير جاهز للتحميل!")
                         st.dataframe(export_data.head(10), use_container_width=True)
         
         except Exception as e:
             st.error(f"خطأ في معالجة الملف: {str(e)}")
-    
     else:
-        # Welcome screen
         st.markdown("""
         """)
-        
+
 if __name__ == "__main__":
     main()
