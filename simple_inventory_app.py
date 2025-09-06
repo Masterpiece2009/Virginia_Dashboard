@@ -1,98 +1,119 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 from datetime import datetime
 import io
-import tempfile
-import os
-from typing import List, Dict, Optional
 import re
 
 # Configure page
 st.set_page_config(
-    page_title="Inventory Dashboard",
-    page_icon="📦",
+    page_title="Inventory Dashboard", 
     layout="wide"
 )
 
-# Custom CSS for modern design
+# Modern CSS without icons
 st.markdown("""
 <style>
     .main .block-container {
         padding-top: 1rem;
-        padding-bottom: 1rem;
+        max-width: 1200px;
     }
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
-        margin: 0.5rem 0;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
-    .metric-value {
-        font-size: 2rem;
-        font-weight: bold;
-        margin: 0;
-    }
-    .metric-label {
-        font-size: 0.9rem;
-        opacity: 0.9;
-        margin: 0;
-    }
-    .search-container {
+    .metric-box {
         background: #f8f9fa;
-        padding: 1.5rem;
+        border: 2px solid #e9ecef;
         border-radius: 10px;
-        border: 1px solid #e9ecef;
+        padding: 20px;
+        margin: 10px 0;
+        text-align: center;
     }
-    .stSelectbox > div > div {
-        background-color: white;
+    .metric-number {
+        font-size: 24px;
+        font-weight: bold;
+        color: #2c3e50;
+        margin-bottom: 5px;
+    }
+    .metric-text {
+        font-size: 14px;
+        color: #6c757d;
+    }
+    .warehouse-row {
+        background: white;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 15px;
+        margin: 8px 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .warehouse-name {
+        font-weight: 600;
+        color: #495057;
+        font-size: 16px;
+    }
+    .warehouse-quantity {
+        font-size: 18px;
+        font-weight: bold;
+        color: #28a745;
     }
 </style>
 """, unsafe_allow_html=True)
 
-class SimpleInventoryProcessor:
-    """Simple processor focused on your exact needs"""
-    
+class InventoryProcessor:
     def __init__(self, df):
         self.raw_df = df.copy()
-        self.processed_df = None
         
     def process_data(self):
-        """Process CSV data to extract product quantities by location and date"""
         try:
             df = self.raw_df.copy()
             processed_data = []
             current_date = None
             
-            # Get location columns - each Virtual Location is separate
-            location_mapping = self._create_location_mapping(df.columns)
+            # All warehouse locations
+            warehouses = [
+                'POS/الصالة',
+                'Virtual Locations/تذوق', 
+                'Virtual Locations/عينات',
+                'Virtual Locations/مستلزمات المبيعات والتشغيل',
+                'Virtual Locations/هالك',
+                'WH-pr/مخزن الانتاج',
+                'WH/المخزن الرئيسى', 
+                'cairo/مخزن القاهرة',
+                'other/مخزون لدي الغير شيخون',
+                'sadat/مخزن السادات',
+                'wh-p/مخزون المنتج التام',
+                'zagel/مخزن زاجل',
+                'تحويل/المخزون',
+                'ثلاجه/المخزون', 
+                'حيدوي/المخزون',
+                'ساحل/المخزون',
+                'شحن/المخزون',
+                'صابون/المخزون',
+                'فتحي/المخزون'
+            ]
+            
+            # Map each warehouse to its quantity column
+            warehouse_mapping = self._map_warehouses(df.columns, warehouses)
             
             for idx, row in df.iterrows():
                 first_col = str(row.iloc[0]).strip()
                 
-                # Skip header rows
-                if any(indicator in first_col for indicator in ['التعداد', 'الكمية', 'Column']):
+                # Skip headers
+                if any(word in first_col for word in ['التعداد', 'الكمية', 'Column']):
                     continue
                 
-                # Check if this is a date row
-                if self._is_date_row(first_col):
-                    current_date = self._parse_date(first_col)
+                # Check for date
+                if self._is_date(first_col):
+                    current_date = first_col
                     continue
                 
-                # Check if this is a product row
-                if self._is_product_row(row, first_col):
-                    product_data = self._extract_product_data(row, current_date, location_mapping)
+                # Check for product
+                if self._is_product(row, first_col):
+                    product_data = self._extract_quantities(row, current_date, warehouse_mapping)
                     if product_data:
                         processed_data.extend(product_data)
             
             if processed_data:
-                self.processed_df = pd.DataFrame(processed_data)
-                self._clean_data()
-                return self.processed_df
+                return pd.DataFrame(processed_data)
             else:
                 return pd.DataFrame()
                 
@@ -100,52 +121,23 @@ class SimpleInventoryProcessor:
             st.error(f"Error processing data: {e}")
             return pd.DataFrame()
     
-    def _create_location_mapping(self, columns):
-        """Map each location to its column indices"""
+    def _map_warehouses(self, columns, warehouses):
+        """Map each warehouse to its quantity column"""
         mapping = {}
-        
-        # Define all possible locations including Virtual Locations separately
-        locations = [
-            'POS/الصالة',
-            'Virtual Locations/تذوق', 
-            'Virtual Locations/عينات',
-            'Virtual Locations/مستلزمات المبيعات والتشغيل',
-            'Virtual Locations/هالك',
-            'WH-pr/مخزن الانتاج',
-            'WH/المخزن الرئيسى', 
-            'cairo/مخزن القاهرة',
-            'other/مخزون لدي الغير شيخون',
-            'sadat/مخزن السادات',
-            'wh-p/مخزون المنتج التام',
-            'zagel/مخزن زاجل',
-            'تحويل/المخزون',
-            'ثلاجه/المخزون', 
-            'حيدوي/المخزون',
-            'ساحل/المخزون',
-            'شحن/المخزون',
-            'صابون/المخزون',
-            'فتحي/المخزون'
-        ]
         
         for i, col in enumerate(columns):
             col_str = str(col)
-            for location in locations:
-                if location in col_str:
-                    clean_name = self._clean_location_name(location)
-                    # Assume count column is current, quantity column is next
+            for warehouse in warehouses:
+                if warehouse in col_str:
+                    clean_name = warehouse.split('/')[-1] if '/' in warehouse else warehouse
+                    # Quantity column is usually the second column for each warehouse (after count)
                     if i + 1 < len(columns):
-                        mapping[clean_name] = (i, i + 1)
+                        mapping[clean_name] = i + 1  # Only quantity column index
                     break
         
         return mapping
     
-    def _clean_location_name(self, location):
-        """Clean location names"""
-        if '/' in location:
-            return location.split('/')[-1]
-        return location
-    
-    def _is_date_row(self, text):
+    def _is_date(self, text):
         """Check if row contains date"""
         if not text or text == 'nan':
             return False
@@ -155,23 +147,9 @@ class SimpleInventoryProcessor:
             r'(June|July|August|September|October|November|December)\s+\d{4}'
         ]
         
-        return any(re.search(pattern, text, re.IGNORECASE) for pattern in date_patterns)
+        return any(re.search(p, text, re.IGNORECASE) for p in date_patterns)
     
-    def _parse_date(self, date_string):
-        """Parse date string"""
-        try:
-            date_formats = ['%d %b %Y', '%d %B %Y', '%B %Y', '%b %Y']
-            for fmt in date_formats:
-                try:
-                    parsed = datetime.strptime(date_string.strip(), fmt)
-                    return parsed.strftime('%Y-%m-%d')
-                except ValueError:
-                    continue
-            return date_string
-        except:
-            return date_string
-    
-    def _is_product_row(self, row, first_col):
+    def _is_product(self, row, first_col):
         """Check if row contains product"""
         if not first_col or first_col == 'nan':
             return False
@@ -179,12 +157,12 @@ class SimpleInventoryProcessor:
         # Look for product code or Arabic text with data
         has_product_code = re.search(r'\[\d+\]', first_col)
         has_arabic = any('\u0600' <= char <= '\u06FF' for char in first_col)
-        has_data = any(self._safe_float(val) > 0 for val in row.iloc[1:] if not pd.isna(val))
+        has_data = any(self._to_float(val) > 0 for val in row.iloc[1:] if not pd.isna(val))
         
         return has_product_code or (has_arabic and has_data)
     
-    def _extract_product_data(self, row, current_date, location_mapping):
-        """Extract product data for each location"""
+    def _extract_quantities(self, row, current_date, warehouse_mapping):
+        """Extract product quantities from each warehouse - show exact numbers"""
         try:
             product_name = str(row.iloc[0]).strip()
             if not product_name or product_name == 'nan':
@@ -192,33 +170,27 @@ class SimpleInventoryProcessor:
             
             data_points = []
             
-            for location_name, (count_idx, quantity_idx) in location_mapping.items():
-                count_val = 0
-                quantity_val = 0
-                
-                if count_idx < len(row):
-                    count_val = self._safe_float(row.iloc[count_idx])
-                
+            for warehouse_name, quantity_idx in warehouse_mapping.items():
                 if quantity_idx < len(row):
-                    quantity_val = self._safe_float(row.iloc[quantity_idx])
-                
-                # Only add if there's meaningful data
-                if count_val > 0 or quantity_val > 0:
-                    data_points.append({
-                        'Product': product_name,
-                        'Date': current_date or 'Unknown',
-                        'Location': location_name,
-                        'Count': count_val,
-                        'Quantity': quantity_val
-                    })
+                    # Get the exact quantity from the sheet - no calculations
+                    quantity = self._to_float(row.iloc[quantity_idx])
+                    
+                    # Only add if there's quantity (show exact number from sheet)
+                    if quantity > 0:
+                        data_points.append({
+                            'Product': product_name,
+                            'Date': current_date or 'Unknown',
+                            'Location': warehouse_name,
+                            'Quantity': quantity  # Exact number from sheet
+                        })
             
             return data_points
             
         except Exception as e:
             return []
     
-    def _safe_float(self, value):
-        """Convert value to float safely"""
+    def _to_float(self, value):
+        """Convert value to float - exact number from sheet"""
         try:
             if pd.isna(value):
                 return 0.0
@@ -226,63 +198,42 @@ class SimpleInventoryProcessor:
             return float(str_val) if str_val and str_val != 'nan' else 0.0
         except:
             return 0.0
-    
-    def _clean_data(self):
-        """Clean processed data"""
-        if self.processed_df is not None and not self.processed_df.empty:
-            # Remove rows with no data
-            self.processed_df = self.processed_df[
-                (self.processed_df['Quantity'] > 0) | (self.processed_df['Count'] > 0)
-            ]
-            
-            # Clean product names
-            self.processed_df['Product'] = self.processed_df['Product'].str.strip()
-            
-            # Sort data
-            self.processed_df = self.processed_df.sort_values(['Date', 'Product', 'Location'])
 
 def format_number(num):
     """Format numbers for display"""
     try:
-        if num >= 1000000:
-            return f"{num/1000000:.1f}M"
-        elif num >= 1000:
-            return f"{num/1000:.1f}K"
-        else:
-            return f"{num:,.2f}"
+        return f"{num:,.2f}"
     except:
         return str(num)
 
 def main():
-    st.title("📦 Simple Inventory Dashboard")
-    st.markdown("**Search products, track quantities across all locations and dates**")
+    st.title("Inventory Dashboard")
+    st.markdown("**Track product quantities across all warehouse locations**")
     
     # File upload
-    st.markdown('<div class="search-container">', unsafe_allow_html=True)
     uploaded_file = st.file_uploader("Upload your inventory CSV file", type=['csv'])
-    st.markdown('</div>', unsafe_allow_html=True)
     
-    if uploaded_file is not None:
+    if uploaded_file:
         try:
             # Process data
-            with st.spinner("Processing your inventory data..."):
+            with st.spinner("Processing inventory data..."):
                 df = pd.read_csv(uploaded_file, encoding='utf-8')
-                processor = SimpleInventoryProcessor(df)
+                processor = InventoryProcessor(df)
                 data = processor.process_data()
             
             if data.empty:
-                st.error("❌ No data could be processed from your file")
+                st.error("No data found in file")
                 return
             
-            st.success(f"✅ Processed {len(data)} inventory records")
+            st.success(f"Loaded {len(data)} inventory records")
             
-            # Get unique values for filters
-            products = sorted(data['Product'].unique().tolist())
-            locations = sorted(data['Location'].unique().tolist()) 
-            dates = sorted(data['Date'].unique().tolist())
+            # Get unique values
+            products = sorted(data['Product'].unique())
+            warehouses = sorted(data['Location'].unique())
+            dates = sorted(data['Date'].unique())
             
-            # Main functionality tabs
-            tab1, tab2, tab3 = st.tabs(["🔍 Product Search", "📅 Date Search", "📊 Export & Charts"])
+            # Main tabs
+            tab1, tab2, tab3 = st.tabs(["Product Search", "Date Search", "Export Data"])
             
             with tab1:
                 st.header("Search Product")
@@ -290,94 +241,90 @@ def main():
                 col1, col2 = st.columns([2, 1])
                 
                 with col1:
-                    search_product = st.selectbox("Select Product:", [""] + products, key="product_search")
+                    selected_product = st.selectbox("Select Product:", [""] + products, key="product_search")
                 
                 with col2:
-                    filter_date = st.selectbox("Filter by Date (Optional):", ["All Dates"] + dates, key="product_date_filter")
+                    date_filter = st.selectbox("Filter by Date:", ["All Dates"] + dates, key="product_date")
                 
-                if search_product:
+                if selected_product:
                     # Filter data
-                    product_data = data[data['Product'] == search_product].copy()
+                    product_data = data[data['Product'] == selected_product].copy()
                     
-                    if filter_date != "All Dates":
-                        product_data = product_data[product_data['Date'] == filter_date]
+                    if date_filter != "All Dates":
+                        product_data = product_data[product_data['Date'] == date_filter]
                     
                     if not product_data.empty:
-                        # Show metrics
+                        st.markdown(f"### {selected_product}")
+                        
+                        # Summary metrics
                         col1, col2, col3, col4 = st.columns(4)
                         
                         with col1:
                             total_qty = product_data['Quantity'].sum()
                             st.markdown(f"""
-                            <div class="metric-card">
-                                <p class="metric-value">{format_number(total_qty)}</p>
-                                <p class="metric-label">Total Quantity</p>
+                            <div class="metric-box">
+                                <div class="metric-number">{format_number(total_qty)}</div>
+                                <div class="metric-text">Total Quantity</div>
                             </div>
                             """, unsafe_allow_html=True)
                         
                         with col2:
-                            total_count = product_data['Count'].sum()
+                            warehouse_count = len(product_data['Location'].unique())
                             st.markdown(f"""
-                            <div class="metric-card">
-                                <p class="metric-value">{format_number(total_count)}</p>
-                                <p class="metric-label">Total Count</p>
+                            <div class="metric-box">
+                                <div class="metric-number">{warehouse_count}</div>
+                                <div class="metric-text">Warehouses</div>
                             </div>
                             """, unsafe_allow_html=True)
                         
                         with col3:
-                            locations_count = len(product_data['Location'].unique())
+                            date_count = len(product_data['Date'].unique())
                             st.markdown(f"""
-                            <div class="metric-card">
-                                <p class="metric-value">{locations_count}</p>
-                                <p class="metric-label">Locations</p>
+                            <div class="metric-box">
+                                <div class="metric-number">{date_count}</div>
+                                <div class="metric-text">Date Entries</div>
                             </div>
                             """, unsafe_allow_html=True)
                         
                         with col4:
-                            dates_count = len(product_data['Date'].unique())
+                            avg_qty = product_data['Quantity'].mean()
                             st.markdown(f"""
-                            <div class="metric-card">
-                                <p class="metric-value">{dates_count}</p>
-                                <p class="metric-label">Date Entries</p>
+                            <div class="metric-box">
+                                <div class="metric-number">{format_number(avg_qty)}</div>
+                                <div class="metric-text">Average Quantity</div>
                             </div>
                             """, unsafe_allow_html=True)
                         
-                        # Location breakdown chart
-                        st.subheader("📍 Quantity by Location")
-                        location_summary = product_data.groupby('Location')['Quantity'].sum().sort_values(ascending=False)
+                        # Show quantities by warehouse - exact numbers from sheet
+                        st.subheader("Quantity by Warehouse")
+                        warehouse_summary = product_data.groupby('Location')['Quantity'].sum().sort_values(ascending=False)
                         
-                        if not location_summary.empty:
-                            fig = px.bar(
-                                x=location_summary.values,
-                                y=location_summary.index,
-                                orientation='h',
-                                title=f"Quantity Distribution for {search_product}",
-                                labels={'x': 'Quantity', 'y': 'Location'}
-                            )
-                            fig.update_layout(height=500)
-                            st.plotly_chart(fig, use_container_width=True)
-                        
-                        # Date timeline if multiple dates
-                        if len(product_data['Date'].unique()) > 1:
-                            st.subheader("📈 Quantity Timeline")
-                            timeline_data = product_data.groupby(['Date', 'Location'])['Quantity'].sum().reset_index()
+                        if not warehouse_summary.empty:
+                            # Show each warehouse with exact quantity
+                            for location, quantity in warehouse_summary.items():
+                                st.markdown(f"""
+                                <div class="warehouse-row">
+                                    <div class="warehouse-name">{location}</div>
+                                    <div class="warehouse-quantity">{quantity:,.2f}</div>
+                                </div>
+                                """, unsafe_allow_html=True)
                             
-                            fig2 = px.line(
-                                timeline_data, 
-                                x='Date', 
-                                y='Quantity', 
-                                color='Location',
-                                title=f"Quantity Over Time for {search_product}",
-                                markers=True
-                            )
-                            st.plotly_chart(fig2, use_container_width=True)
+                            # Simple chart
+                            st.bar_chart(warehouse_summary)
                         
-                        # Data table
-                        st.subheader("📋 Detailed Data")
-                        st.dataframe(product_data, use_container_width=True)
+                        # Timeline if multiple dates
+                        if len(product_data['Date'].unique()) > 1:
+                            st.subheader("Quantity Timeline")
+                            timeline_data = product_data.groupby('Date')['Quantity'].sum().reset_index()
+                            st.line_chart(timeline_data.set_index('Date'))
+                        
+                        # Data table showing exact values
+                        st.subheader("Detailed Data")
+                        display_data = product_data[['Date', 'Location', 'Quantity']].copy()
+                        st.dataframe(display_data, use_container_width=True)
                     
                     else:
-                        st.info("No data found for the selected product and date filter.")
+                        st.info("No data found for selected product and date filter")
             
             with tab2:
                 st.header("Search by Date")
@@ -388,128 +335,110 @@ def main():
                     date_data = data[data['Date'] == selected_date].copy()
                     
                     if not date_data.empty:
-                        # Show metrics for the date
+                        st.markdown(f"### {selected_date}")
+                        
+                        # Date metrics
                         col1, col2, col3, col4 = st.columns(4)
                         
                         with col1:
                             total_products = len(date_data['Product'].unique())
                             st.markdown(f"""
-                            <div class="metric-card">
-                                <p class="metric-value">{total_products}</p>
-                                <p class="metric-label">Products</p>
+                            <div class="metric-box">
+                                <div class="metric-number">{total_products}</div>
+                                <div class="metric-text">Products</div>
                             </div>
                             """, unsafe_allow_html=True)
                         
                         with col2:
                             total_qty = date_data['Quantity'].sum()
                             st.markdown(f"""
-                            <div class="metric-card">
-                                <p class="metric-value">{format_number(total_qty)}</p>
-                                <p class="metric-label">Total Quantity</p>
+                            <div class="metric-box">
+                                <div class="metric-number">{format_number(total_qty)}</div>
+                                <div class="metric-text">Total Quantity</div>
                             </div>
                             """, unsafe_allow_html=True)
                         
                         with col3:
-                            total_count = date_data['Count'].sum()
+                            total_warehouses = len(date_data['Location'].unique())
                             st.markdown(f"""
-                            <div class="metric-card">
-                                <p class="metric-value">{format_number(total_count)}</p>
-                                <p class="metric-label">Total Count</p>
+                            <div class="metric-box">
+                                <div class="metric-number">{total_warehouses}</div>
+                                <div class="metric-text">Warehouses</div>
                             </div>
                             """, unsafe_allow_html=True)
                         
                         with col4:
-                            total_locations = len(date_data['Location'].unique())
+                            avg_per_product = total_qty / total_products if total_products > 0 else 0
                             st.markdown(f"""
-                            <div class="metric-card">
-                                <p class="metric-value">{total_locations}</p>
-                                <p class="metric-label">Locations</p>
+                            <div class="metric-box">
+                                <div class="metric-number">{format_number(avg_per_product)}</div>
+                                <div class="metric-text">Avg per Product</div>
                             </div>
                             """, unsafe_allow_html=True)
                         
-                        # Top products for this date
-                        st.subheader("🏆 Top Products by Quantity")
+                        # Top products
+                        st.subheader("Top Products by Quantity")
                         top_products = date_data.groupby('Product')['Quantity'].sum().sort_values(ascending=False).head(10)
                         
                         if not top_products.empty:
-                            fig = px.bar(
-                                x=top_products.values,
-                                y=top_products.index,
-                                orientation='h',
-                                title=f"Top Products on {selected_date}"
-                            )
-                            fig.update_layout(height=500)
-                            st.plotly_chart(fig, use_container_width=True)
+                            st.bar_chart(top_products)
                         
-                        # Location distribution for this date
-                        st.subheader("📍 Location Distribution")
-                        location_dist = date_data.groupby('Location')['Quantity'].sum().sort_values(ascending=False)
+                        # Warehouse distribution - show exact quantities
+                        st.subheader("Warehouse Distribution")
+                        warehouse_dist = date_data.groupby('Location')['Quantity'].sum().sort_values(ascending=False)
                         
-                        if not location_dist.empty:
-                            fig2 = px.pie(
-                                values=location_dist.values,
-                                names=location_dist.index,
-                                title=f"Quantity Distribution by Location on {selected_date}"
-                            )
-                            st.plotly_chart(fig2, use_container_width=True)
+                        if not warehouse_dist.empty:
+                            # Show exact quantities per warehouse
+                            for location, quantity in warehouse_dist.items():
+                                st.markdown(f"""
+                                <div class="warehouse-row">
+                                    <div class="warehouse-name">{location}</div>
+                                    <div class="warehouse-quantity">{quantity:,.2f}</div>
+                                </div>
+                                """, unsafe_allow_html=True)
                         
-                        # All transactions for this date
-                        st.subheader("📋 All Transactions")
-                        st.dataframe(date_data, use_container_width=True)
+                        # All transactions  
+                        st.subheader("All Transactions")
+                        display_data = date_data[['Product', 'Location', 'Quantity']].copy()
+                        st.dataframe(display_data, use_container_width=True)
                     
                     else:
                         st.info(f"No data found for {selected_date}")
             
             with tab3:
-                st.header("Export & Charts")
+                st.header("Export Data")
                 
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    st.subheader("📊 Generate Charts")
+                    st.subheader("Quick Charts")
                     
-                    chart_type = st.selectbox("Select Chart Type:", [
-                        "Top 10 Products Overall",
-                        "Location Distribution", 
-                        "Inventory Timeline",
-                        "Product Comparison"
+                    chart_type = st.selectbox("Select Chart:", [
+                        "Top 10 Products",
+                        "Warehouse Distribution", 
+                        "Quantity Timeline"
                     ])
                     
-                    if st.button("Generate Chart"):
-                        if chart_type == "Top 10 Products Overall":
+                    if st.button("Show Chart"):
+                        if chart_type == "Top 10 Products":
                             top_products = data.groupby('Product')['Quantity'].sum().sort_values(ascending=False).head(10)
-                            fig = px.bar(x=top_products.values, y=top_products.index, orientation='h',
-                                       title="Top 10 Products by Total Quantity")
-                            st.plotly_chart(fig, use_container_width=True)
+                            st.bar_chart(top_products)
                         
-                        elif chart_type == "Location Distribution":
-                            location_totals = data.groupby('Location')['Quantity'].sum()
-                            fig = px.pie(values=location_totals.values, names=location_totals.index,
-                                       title="Total Quantity Distribution by Location")
-                            st.plotly_chart(fig, use_container_width=True)
+                        elif chart_type == "Warehouse Distribution":
+                            warehouse_totals = data.groupby('Location')['Quantity'].sum().sort_values(ascending=False)
+                            st.bar_chart(warehouse_totals)
                         
-                        elif chart_type == "Inventory Timeline":
+                        elif chart_type == "Quantity Timeline":
                             timeline = data.groupby('Date')['Quantity'].sum().reset_index()
-                            fig = px.line(timeline, x='Date', y='Quantity', 
-                                        title="Total Inventory Over Time", markers=True)
-                            st.plotly_chart(fig, use_container_width=True)
-                        
-                        elif chart_type == "Product Comparison":
-                            selected_products = st.multiselect("Select Products to Compare:", products)
-                            if selected_products:
-                                comp_data = data[data['Product'].isin(selected_products)]
-                                comp_summary = comp_data.groupby(['Product', 'Location'])['Quantity'].sum().reset_index()
-                                fig = px.bar(comp_summary, x='Location', y='Quantity', color='Product',
-                                           title="Product Comparison by Location")
-                                st.plotly_chart(fig, use_container_width=True)
+                            st.line_chart(timeline.set_index('Date'))
                 
                 with col2:
-                    st.subheader("📤 Export Data")
+                    st.subheader("Export Options")
                     
-                    export_option = st.selectbox("Select Export Option:", [
+                    export_option = st.selectbox("Select Export:", [
                         "Complete Dataset",
                         "Product Summary",
-                        "Location Summary",
+                        "Warehouse Summary",
                         "Date Summary"
                     ])
                     
@@ -519,27 +448,24 @@ def main():
                         elif export_option == "Product Summary":
                             export_data = data.groupby('Product').agg({
                                 'Quantity': ['sum', 'mean', 'count'],
-                                'Count': 'sum',
                                 'Location': 'nunique',
                                 'Date': 'nunique'
                             }).round(2)
-                        elif export_option == "Location Summary":
+                        elif export_option == "Warehouse Summary":
                             export_data = data.groupby('Location').agg({
                                 'Quantity': ['sum', 'mean', 'count'],
-                                'Count': 'sum', 
                                 'Product': 'nunique',
                                 'Date': 'nunique'
                             }).round(2)
                         else:  # Date Summary
                             export_data = data.groupby('Date').agg({
                                 'Quantity': ['sum', 'mean', 'count'],
-                                'Count': 'sum',
                                 'Product': 'nunique',
                                 'Location': 'nunique'
                             }).round(2)
                         
-                        # Create download buttons
-                        csv_data = export_data.to_csv(index=True)
+                        # Download options
+                        csv_data = export_data.to_csv(index=True, encoding='utf-8-sig')
                         excel_buffer = io.BytesIO()
                         export_data.to_excel(excel_buffer, index=True, engine='openpyxl')
                         excel_buffer.seek(0)
@@ -548,7 +474,7 @@ def main():
                         
                         with col_a:
                             st.download_button(
-                                label="📄 Download CSV",
+                                label="Download CSV",
                                 data=csv_data,
                                 file_name=f"{export_option.lower().replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                                 mime="text/csv"
@@ -556,43 +482,22 @@ def main():
                         
                         with col_b:
                             st.download_button(
-                                label="📊 Download Excel", 
+                                label="Download Excel", 
                                 data=excel_buffer,
                                 file_name=f"{export_option.lower().replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             )
                         
-                        st.success("✅ Export ready for download!")
-                        st.dataframe(export_data.head(), use_container_width=True)
+                        st.success("Export ready for download!")
+                        st.dataframe(export_data.head(10), use_container_width=True)
         
         except Exception as e:
-            st.error(f"❌ Error processing file: {str(e)}")
+            st.error(f"Error processing file: {str(e)}")
     
     else:
         # Welcome screen
         st.markdown("""
-        ## 🎯 What This Dashboard Does:
-        
-        **📦 Product Search:**
-        - Search any product and see ALL its quantities across ALL locations
-        - Filter by specific dates to see quantities on that date
-        - View charts showing distribution across locations
-        
-        **📅 Date Search:** 
-        - Pick any date and see ALL products and transactions for that date
-        - View all inventory levels across all locations for that date
-        - See charts of top products and location distribution
-        
-        **📊 Export & Charts:**
-        - Generate various charts and visualizations
-        - Export data as CSV or Excel files
-        - Compare products across locations
-        
-        **✨ Features:**
-        - Each Virtual Location is tracked separately (تذوق, عينات, مستلزمات, هالك)
-        - Handles Arabic product names perfectly
-        - Modern, clean interface
-        - Fast search and filtering
+
         """)
 
 if __name__ == "__main__":
