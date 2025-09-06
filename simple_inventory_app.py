@@ -1,4 +1,4 @@
-import streamlit as st
+ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import io
@@ -245,7 +245,7 @@ def main():
             warehouses = sorted(data['Location'].unique())
             dates = sorted(data['Date'].unique())
             
-            tab1, tab2, tab3 = st.tabs(["بحث بالمنتج", "بحث بالتاريخ", "تصدير البيانات"])
+            tab1, tab2, tab3 = st.tabs(["بحث بالمنتج", "بحث بالتاريخ", "رسوم بيانية"])
             
             # --- بحث المنتج مع فلترة المخزن ---
             with tab1:
@@ -453,78 +453,47 @@ def main():
                     else:
                         st.info(f"لا توجد بيانات لهذا التاريخ أو الفلتر المحدد")
             
-            # --- تصدير البيانات ---
+            # --- رسوم بيانية معبرة اضافية ---
             with tab3:
-                st.header("تصدير البيانات")
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.subheader("رسوم بيانية سريعة")
-                    chart_type = st.selectbox("اختر الرسم البياني:", [
-                        "أعلى 10 منتجات",
-                        "توزيع المخازن", 
-                        "تسلسل الكميات عبر الزمن"
-                    ])
-                    if st.button("عرض الرسم البياني"):
-                        if chart_type == "أعلى 10 منتجات":
-                            top_products = data.groupby('Product')['Quantity'].sum().sort_values(ascending=False).head(10)
-                            st.bar_chart(top_products)
-                        elif chart_type == "توزيع المخازن":
-                            warehouse_totals = data.groupby('Location')['Quantity'].sum().sort_values(ascending=False)
-                            st.bar_chart(warehouse_totals)
-                        elif chart_type == "تسلسل الكميات عبر الزمن":
-                            timeline = data.groupby('Date')['Quantity'].sum().reset_index()
-                            st.line_chart(timeline.set_index('Date'))
-                with col2:
-                    st.subheader("خيارات التصدير")
-                    export_option = st.selectbox("اختر نوع التصدير:", [
-                        "كل البيانات",
-                        "ملخص المنتجات",
-                        "ملخص المخازن",
-                        "ملخص التواريخ"
-                    ])
-                    if st.button("توليد ملف التصدير"):
-                        if export_option == "كل البيانات":
-                            export_data = data
-                        elif export_option == "ملخص المنتجات":
-                            export_data = data.groupby('Product').agg({
-                                'Quantity': ['sum', 'mean', 'count'],
-                                'Location': 'nunique',
-                                'Date': 'nunique'
-                            }).round(2)
-                        elif export_option == "ملخص المخازن":
-                            export_data = data.groupby('Location').agg({
-                                'Quantity': ['sum', 'mean', 'count'],
-                                'Product': 'nunique',
-                                'Date': 'nunique'
-                            }).round(2)
-                        else:
-                            export_data = data.groupby('Date').agg({
-                                'Quantity': ['sum', 'mean', 'count'],
-                                'Product': 'nunique',
-                                'Location': 'nunique'
-                            }).round(2)
-                        csv_data = export_data.to_csv(index=True, encoding='utf-8-sig')
-                        excel_buffer = io.BytesIO()
-                        export_data.to_excel(excel_buffer, index=True, engine='openpyxl')
-                        excel_buffer.seek(0)
-                        col_a, col_b = st.columns(2)
-                        with col_a:
-                            st.download_button(
-                                label="تحميل CSV",
-                                data=csv_data,
-                                file_name=f"{export_option.lower().replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                mime="text/csv"
-                            )
-                        with col_b:
-                            st.download_button(
-                                label="تحميل Excel", 
-                                data=excel_buffer,
-                                file_name=f"{export_option.lower().replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            )
-                        st.success("التصدير جاهز للتحميل!")
-                        st.dataframe(export_data.head(10), use_container_width=True)
+                st.header("رسوم بيانية معبرة")
+                st.markdown("اختر الرسم البياني المناسب لعرض ملخصات المخزون بشكل مرئي:")
+
+                chart_type = st.selectbox("اختر نوع الرسم البياني:", [
+                    "أعلى 10 منتجات حسب الكمية الإجمالية",
+                    "توزيع الكمية حسب المخزن (Pie)",
+                    "تسلسل الكميات عبر الزمن (Line)",
+                    "توزيع المنتجات حسب عدد المخازن",
+                    "توزيع المنتجات حسب عدد التواريخ",
+                    "أكثر المنتجات تواجداً في المخازن",
+                    "توزيع الكميات في جميع المخازن (Boxplot)"
+                ])
+                if st.button("عرض الرسم البياني"):
+                    if chart_type == "أعلى 10 منتجات حسب الكمية الإجمالية":
+                        top_products = data.groupby('Product')['Quantity'].sum().sort_values(ascending=False).head(10)
+                        st.bar_chart(top_products)
+                    elif chart_type == "توزيع الكمية حسب المخزن (Pie)":
+                        warehouse_totals = data.groupby('Location')['Quantity'].sum().sort_values(ascending=False)
+                        st.pyplot(pd.DataFrame({'كمية': warehouse_totals}).plot.pie(y='كمية', autopct='%.2f%%', figsize=(6, 6)).figure)
+                    elif chart_type == "تسلسل الكميات عبر الزمن (Line)":
+                        timeline = data.groupby('Date')['Quantity'].sum().reset_index()
+                        st.line_chart(timeline.set_index('Date'))
+                    elif chart_type == "توزيع المنتجات حسب عدد المخازن":
+                        product_warehouse_count = data.groupby('Product')['Location'].nunique().sort_values(ascending=False)
+                        st.bar_chart(product_warehouse_count)
+                    elif chart_type == "توزيع المنتجات حسب عدد التواريخ":
+                        product_date_count = data.groupby('Product')['Date'].nunique().sort_values(ascending=False)
+                        st.bar_chart(product_date_count)
+                    elif chart_type == "أكثر المنتجات تواجداً في المخازن":
+                        product_qty_per_warehouse = data.groupby(['Product', 'Location'])['Quantity'].sum().reset_index()
+                        pivot = product_qty_per_warehouse.pivot(index='Product', columns='Location', values='Quantity').fillna(0)
+                        st.dataframe(pivot)
+                    elif chart_type == "توزيع الكميات في جميع المخازن (Boxplot)":
+                        import matplotlib.pyplot as plt
+                        import seaborn as sns
+                        fig, ax = plt.subplots(figsize=(10,5))
+                        sns.boxplot(x='Location', y='Quantity', data=data)
+                        plt.xticks(rotation=45)
+                        st.pyplot(fig)
         
         except Exception as e:
             st.error(f"خطأ في معالجة الملف: {str(e)}")
