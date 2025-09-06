@@ -176,14 +176,13 @@ class InventoryProcessor:
                     # Get the quantity directly from the mapped column for the warehouse
                     quantity = self._to_float(row.iloc[quantity_idx])
                     
-                    # Only add if there's quantity (show exact number from sheet)
-                    if quantity > 0:
-                        data_points.append({
-                            'Product': product_name,
-                            'Date': current_date or 'Unknown',
-                            'Location': warehouse_name,
-                            'Quantity': quantity  # Exact number from sheet
-                        })
+                    # Even if quantity is zero, add entry (so all warehouses are present in final summary)
+                    data_points.append({
+                        'Product': product_name,
+                        'Date': current_date or 'Unknown',
+                        'Location': warehouse_name,
+                        'Quantity': quantity
+                    })
             
             return data_points
             
@@ -233,9 +232,9 @@ def main():
             warehouses = sorted(data['Location'].unique())
             dates = sorted(data['Date'].unique())
             
-            # Main tabs
             tab1, tab2, tab3 = st.tabs(["بحث بالمنتج", "بحث بالتاريخ", "تصدير البيانات"])
             
+            # --- البحث بالمنتج مع فلترة المخزن ---
             with tab1:
                 st.header("بحث المنتج")
                 
@@ -247,21 +246,59 @@ def main():
                 with col2:
                     date_filter = st.selectbox("فلترة بالتاريخ:", ["كل التواريخ"] + dates, key="product_date")
                 
+                # نوع الفلترة للمخزن
+                filter_type = st.radio(
+                    "نوع الفلترة للمخزن:",
+                    ["كل المخازن", "المخازن التي بها كمية (>0)", "اختيار يدوي"],
+                    index=0
+                )
+                
+                # تجهيز البيانات حسب المنتج والتاريخ
+                product_data = pd.DataFrame()
+                filtered_warehouses = warehouses
                 if selected_product:
-                    # Filter data
                     product_data = data[data['Product'] == selected_product].copy()
-                    
                     if date_filter != "كل التواريخ":
                         product_data = product_data[product_data['Date'] == date_filter]
                     
-                    if not product_data.empty:
+                    # قائمة المخازن التي بها كمية > 0
+                    warehouses_with_qty = sorted(product_data[product_data['Quantity'] > 0]['Location'].unique())
+                    
+                    # تحديد المخازن حسب نوع الفلترة
+                    if filter_type == "كل المخازن":
+                        filtered_warehouses = warehouses
+                    elif filter_type == "المخازن التي بها كمية (>0)":
+                        filtered_warehouses = warehouses_with_qty
+                    else:
+                        # اختيار يدوي
+                        filtered_warehouses = st.multiselect(
+                            "حدد المخازن:",
+                            warehouses,
+                            default=warehouses_with_qty if warehouses_with_qty else warehouses,
+                            key="warehouse_filter"
+                        )
+                    
+                    # فلترة المنتج حسب المخازن المختارة
+                    product_data = product_data[product_data['Location'].isin(filtered_warehouses)]
+                    
+                    # تجهيز ملخص المخازن (كل المخازن في الفلترة حتى لو الكمية صفر)
+                    warehouse_summary = (
+                        pd.DataFrame({'Location': filtered_warehouses})
+                        .set_index('Location')
+                        .join(
+                            product_data.groupby('Location')['Quantity'].sum(),
+                            how='left'
+                        )
+                        .fillna(0)
+                        .sort_values('Quantity', ascending=False)
+                    )
+                    
+                    if not product_data.empty or len(filtered_warehouses) > 0:
                         st.markdown(f"### {selected_product}")
                         
-                        # Summary metrics
                         col1, col2, col3, col4 = st.columns(4)
-                        
                         with col1:
-                            total_qty = product_data['Quantity'].sum()
+                            total_qty = warehouse_summary['Quantity'].sum()
                             st.markdown(f"""
                             <div class="metric-box">
                                 <div class="metric-number">{format_number(total_qty)}</div>
@@ -270,7 +307,7 @@ def main():
                             """, unsafe_allow_html=True)
                         
                         with col2:
-                            warehouse_count = len(product_data['Location'].unique())
+                            warehouse_count = len(filtered_warehouses)
                             st.markdown(f"""
                             <div class="metric-box">
                                 <div class="metric-number">{warehouse_count}</div>
@@ -288,7 +325,7 @@ def main():
                             """, unsafe_allow_html=True)
                         
                         with col4:
-                            avg_qty = product_data['Quantity'].mean()
+                            avg_qty = warehouse_summary['Quantity'].mean()
                             st.markdown(f"""
                             <div class="metric-box">
                                 <div class="metric-number">{format_number(avg_qty)}</div>
@@ -296,22 +333,18 @@ def main():
                             </div>
                             """, unsafe_allow_html=True)
                         
-                        # Show quantities by warehouse - exact numbers from sheet
+                        # عرض كل المخازن المختارة بالكمية (حتى لو صفر)
                         st.subheader("الكميات حسب المخزن")
-                        warehouse_summary = product_data.groupby('Location')['Quantity'].sum().sort_values(ascending=False)
+                        for location, row in warehouse_summary.iterrows():
+                            st.markdown(f"""
+                            <div class="warehouse-row">
+                                <div class="warehouse-name">{location}</div>
+                                <div class="warehouse-quantity">{row['Quantity']:,.2f}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
                         
-                        if not warehouse_summary.empty:
-                            # Show each warehouse with exact quantity
-                            for location, quantity in warehouse_summary.items():
-                                st.markdown(f"""
-                                <div class="warehouse-row">
-                                    <div class="warehouse-name">{location}</div>
-                                    <div class="warehouse-quantity">{quantity:,.2f}</div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                            
-                            # Simple chart
-                            st.bar_chart(warehouse_summary)
+                        # رسم بياني
+                        st.bar_chart(warehouse_summary['Quantity'])
                         
                         # Timeline if multiple dates
                         if len(product_data['Date'].unique()) > 1:
@@ -327,20 +360,61 @@ def main():
                     else:
                         st.info("لا توجد بيانات للمنتج أو الفلتر المحدد")
             
+            # --- البحث بالتاريخ مع فلترة المخزن ---
             with tab2:
                 st.header("بحث بالتاريخ")
                 
                 selected_date = st.selectbox("اختر التاريخ:", dates, key="date_search")
                 
+                # نوع الفلترة للمخزن في البحث بالتاريخ
+                filter_type_date = st.radio(
+                    "نوع الفلترة للمخزن:",
+                    ["كل المخازن", "المخازن التي بها كمية (>0)", "اختيار يدوي"],
+                    index=0,
+                    key="warehouse_filter_date_type"
+                )
+                
+                date_data = pd.DataFrame()
+                filtered_warehouses_date = warehouses
                 if selected_date:
                     date_data = data[data['Date'] == selected_date].copy()
                     
-                    if not date_data.empty:
+                    # قائمة المخازن التي بها كمية > 0
+                    warehouses_with_qty_date = sorted(date_data[date_data['Quantity'] > 0]['Location'].unique())
+                    
+                    # تحديد المخازن حسب نوع الفلترة
+                    if filter_type_date == "كل المخازن":
+                        filtered_warehouses_date = warehouses
+                    elif filter_type_date == "المخازن التي بها كمية (>0)":
+                        filtered_warehouses_date = warehouses_with_qty_date
+                    else:
+                        # اختيار يدوي
+                        filtered_warehouses_date = st.multiselect(
+                            "حدد المخازن:",
+                            warehouses,
+                            default=warehouses_with_qty_date if warehouses_with_qty_date else warehouses,
+                            key="warehouse_filter_date"
+                        )
+                    
+                    # فلترة البيانات حسب المخازن المختارة
+                    date_data = date_data[date_data['Location'].isin(filtered_warehouses_date)]
+                    
+                    # تجهيز ملخص المخازن (كل المخازن في الفلترة حتى لو الكمية صفر)
+                    warehouse_dist = (
+                        pd.DataFrame({'Location': filtered_warehouses_date})
+                        .set_index('Location')
+                        .join(
+                            date_data.groupby('Location')['Quantity'].sum(),
+                            how='left'
+                        )
+                        .fillna(0)
+                        .sort_values('Quantity', ascending=False)
+                    )
+                    
+                    if not date_data.empty or len(filtered_warehouses_date) > 0:
                         st.markdown(f"### {selected_date}")
                         
-                        # Date metrics
                         col1, col2, col3, col4 = st.columns(4)
-                        
                         with col1:
                             total_products = len(date_data['Product'].unique())
                             st.markdown(f"""
@@ -351,7 +425,7 @@ def main():
                             """, unsafe_allow_html=True)
                         
                         with col2:
-                            total_qty = date_data['Quantity'].sum()
+                            total_qty = warehouse_dist['Quantity'].sum()
                             st.markdown(f"""
                             <div class="metric-box">
                                 <div class="metric-number">{format_number(total_qty)}</div>
@@ -360,7 +434,7 @@ def main():
                             """, unsafe_allow_html=True)
                         
                         with col3:
-                            total_warehouses = len(date_data['Location'].unique())
+                            total_warehouses = len(filtered_warehouses_date)
                             st.markdown(f"""
                             <div class="metric-box">
                                 <div class="metric-number">{total_warehouses}</div>
@@ -377,35 +451,32 @@ def main():
                             </div>
                             """, unsafe_allow_html=True)
                         
-                        # Top products
+                        st.subheader("توزيع الكمية حسب المخزن")
+                        for location, row in warehouse_dist.iterrows():
+                            st.markdown(f"""
+                            <div class="warehouse-row">
+                                <div class="warehouse-name">{location}</div>
+                                <div class="warehouse-quantity">{row['Quantity']:,.2f}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        
+                        st.bar_chart(warehouse_dist['Quantity'])
+                        
+                        # أعلى المنتجات (حسب البيانات المفلترة)
                         st.subheader("أعلى المنتجات حسب الكمية")
                         top_products = date_data.groupby('Product')['Quantity'].sum().sort_values(ascending=False).head(10)
-                        
                         if not top_products.empty:
                             st.bar_chart(top_products)
                         
-                        # Warehouse distribution - show exact quantities
-                        st.subheader("توزيع الكمية حسب المخزن")
-                        warehouse_dist = date_data.groupby('Location')['Quantity'].sum().sort_values(ascending=False)
-                        
-                        if not warehouse_dist.empty:
-                            # Show exact quantities per warehouse
-                            for location, quantity in warehouse_dist.items():
-                                st.markdown(f"""
-                                <div class="warehouse-row">
-                                    <div class="warehouse-name">{location}</div>
-                                    <div class="warehouse-quantity">{quantity:,.2f}</div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                        
-                        # All transactions  
+                        # كل عمليات المخزون
                         st.subheader("كل عمليات المخزون")
                         display_data = date_data[['Product', 'Location', 'Quantity']].copy()
                         st.dataframe(display_data, use_container_width=True)
                     
                     else:
-                        st.info(f"لا توجد بيانات لهذا التاريخ")
+                        st.info(f"لا توجد بيانات لهذا التاريخ أو الفلتر المحدد")
             
+            # --- تصدير البيانات ---
             with tab3:
                 st.header("تصدير البيانات")
                 
@@ -498,8 +569,7 @@ def main():
     else:
         # Welcome screen
         st.markdown("""
-       
         """)
-
+        
 if __name__ == "__main__":
     main()
