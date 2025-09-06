@@ -58,6 +58,29 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Arabic display names for warehouses
+WAREHOUSE_DISPLAY_NAMES = {
+    'POS/الصالة': 'الصالة',
+    'Virtual Locations/تذوق': 'تذوق',
+    'Virtual Locations/عينات': 'عينات',
+    'Virtual Locations/مستلزمات المبيعات والتشغيل': 'مستلزمات المبيعات والتشغيل',
+    'Virtual Locations/هالك': 'هالك',
+    'WH-pr/مخزن الانتاج': 'مخزن الانتاج',
+    'WH/المخزن الرئيسى': 'المخزن الرئيسي',
+    'cairo/مخزن القاهرة': 'مخزن القاهرة',
+    'other/مخزون لدي الغير شيخون': 'مخزون لدي الغير شيخون',
+    'sadat/مخزن السادات': 'مخزن السادات',
+    'wh-p/مخزون المنتج التام': 'مخزون المنتج التام',
+    'zagel/مخزن زاجل': 'مخزن زاجل',
+    'تحويل/المخزون': 'تحويل المخزون',
+    'ثلاجه/المخزون': 'ثلاجه',
+    'حيدوي/المخزون': 'حيدوي',
+    'ساحل/المخزون': 'ساحل',
+    'شحن/المخزون': 'شحن',
+    'صابون/المخزون': 'صابون',
+    'فتحي/المخزون': 'فتحي'
+}
+
 class InventoryProcessor:
     def __init__(self, df):
         self.raw_df = df.copy()
@@ -68,7 +91,7 @@ class InventoryProcessor:
             processed_data = []
             current_date = None
             
-            # All warehouse locations (stripped for robust matching)
+            # All warehouse locations
             warehouses = [
                 'POS/الصالة',
                 'Virtual Locations/تذوق', 
@@ -82,7 +105,7 @@ class InventoryProcessor:
                 'sadat/مخزن السادات',
                 'wh-p/مخزون المنتج التام',
                 'zagel/مخزن زاجل',
-                'تحويل/المخزون',         # <-- will match even if there's a space in CSV!
+                'تحويل/المخزون',
                 'ثلاجه/المخزون', 
                 'حيدوي/المخزون',
                 'ساحل/المخزون',
@@ -122,16 +145,17 @@ class InventoryProcessor:
     
     def _map_warehouses(self, columns, warehouses):
         """
-        Map each warehouse to its quantity column.
-        Robust: strip spaces from both warehouse and columns for matching.
+        Robust mapping: match warehouse with column name by stripping spaces and checking substring inclusion.
         """
         mapping = {}
         columns_stripped = [str(col).strip() for col in columns]
         for warehouse in warehouses:
             warehouse_stripped = warehouse.strip()
             for i, col in enumerate(columns_stripped):
-                if col == warehouse_stripped:
-                    mapping[warehouse_stripped.split('/')[-1] if '/' in warehouse_stripped else warehouse_stripped] = i
+                col_stripped = col.strip()
+                # Match if warehouse name is in column name or vice versa
+                if warehouse_stripped in col_stripped or col_stripped in warehouse_stripped:
+                    mapping[warehouse_stripped] = i
                     break
         return mapping
     
@@ -171,7 +195,6 @@ class InventoryProcessor:
             for warehouse_name, quantity_idx in warehouse_mapping.items():
                 if quantity_idx < len(row):
                     quantity = self._to_float(row.iloc[quantity_idx])
-                    # even if 0, always add
                     data_points.append({
                         'Product': product_name,
                         'Date': current_date or 'Unknown',
@@ -310,9 +333,10 @@ def main():
                         
                         st.subheader("الكميات حسب المخزن")
                         for location, row in warehouse_summary.iterrows():
+                            display_name = WAREHOUSE_DISPLAY_NAMES.get(location, location)
                             st.markdown(f"""
                             <div class="warehouse-row">
-                                <div class="warehouse-name">{location}</div>
+                                <div class="warehouse-name">{display_name}</div>
                                 <div class="warehouse-quantity">{row['Quantity']:,.2f}</div>
                             </div>
                             """, unsafe_allow_html=True)
@@ -409,9 +433,10 @@ def main():
                         
                         st.subheader("توزيع الكمية حسب المخزن")
                         for location, row in warehouse_dist.iterrows():
+                            display_name = WAREHOUSE_DISPLAY_NAMES.get(location, location)
                             st.markdown(f"""
                             <div class="warehouse-row">
-                                <div class="warehouse-name">{location}</div>
+                                <div class="warehouse-name">{display_name}</div>
                                 <div class="warehouse-quantity">{row['Quantity']:,.2f}</div>
                             </div>
                             """, unsafe_allow_html=True)
