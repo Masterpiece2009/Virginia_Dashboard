@@ -91,7 +91,7 @@ class InventoryProcessor:
                 'فتحي/المخزون'
             ]
             
-            # Map each warehouse to its quantity column
+            # Map each warehouse to its quantity column (skip count columns)
             warehouse_mapping = self._map_warehouses(df.columns, warehouses)
             
             for idx, row in df.iterrows():
@@ -122,19 +122,22 @@ class InventoryProcessor:
             return pd.DataFrame()
     
     def _map_warehouses(self, columns, warehouses):
-        """Map each warehouse to its quantity column"""
+        """
+        Map each warehouse to its quantity column (skip count columns).
+        Assumes that for each warehouse, the quantity column is the first numeric column after the warehouse name,
+        and the next column is the count column (which we skip).
+        """
         mapping = {}
-        
-        for i, col in enumerate(columns):
-            col_str = str(col)
-            for warehouse in warehouses:
+        for warehouse in warehouses:
+            for i, col in enumerate(columns):
+                col_str = str(col)
                 if warehouse in col_str:
-                    clean_name = warehouse.split('/')[-1] if '/' in warehouse else warehouse
-                    # Quantity column is usually the second column for each warehouse (after count)
-                    if i + 1 < len(columns):
-                        mapping[clean_name] = i + 1  # Only quantity column index
+                    qty_idx = i + 1
+                    # Defensive: Only map if this is not a filler/colour column and is within range
+                    if qty_idx < len(columns):
+                        # Optional: You can add further checks here to confirm it's the quantity column
+                        mapping[warehouse.split('/')[-1] if '/' in warehouse else warehouse] = qty_idx
                     break
-        
         return mapping
     
     def _is_date(self, text):
@@ -144,7 +147,9 @@ class InventoryProcessor:
         
         date_patterns = [
             r'\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}',
-            r'(June|July|August|September|October|November|December)\s+\d{4}'
+            r'(June|July|August|September|October|November|December)\s+\d{4}',
+            r'\d{1,2}\s+[A-Za-z]+\s+\d{4}',     # Generic Month
+            r'\d{1,2}[-/]\d{1,2}[-/]\d{2,4}',   # DD-MM-YYYY or DD/MM/YYYY
         ]
         
         return any(re.search(p, text, re.IGNORECASE) for p in date_patterns)
@@ -162,7 +167,7 @@ class InventoryProcessor:
         return has_product_code or (has_arabic and has_data)
     
     def _extract_quantities(self, row, current_date, warehouse_mapping):
-        """Extract product quantities from each warehouse - show exact numbers"""
+        """Extract product quantities from each warehouse - use only mapped quantity columns"""
         try:
             product_name = str(row.iloc[0]).strip()
             if not product_name or product_name == 'nan':
@@ -172,7 +177,7 @@ class InventoryProcessor:
             
             for warehouse_name, quantity_idx in warehouse_mapping.items():
                 if quantity_idx < len(row):
-                    # Get the exact quantity from the sheet - no calculations
+                    # Get the exact quantity from the sheet (skip the count column)
                     quantity = self._to_float(row.iloc[quantity_idx])
                     
                     # Only add if there's quantity (show exact number from sheet)
