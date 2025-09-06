@@ -245,7 +245,7 @@ def main():
             warehouses = sorted(data['Location'].unique())
             dates = sorted(data['Date'].unique())
             
-            tab1, tab2, tab3 = st.tabs(["بحث بالمنتج", "بحث بالتاريخ", "رسوم بيانية"])
+            tab1, tab2 = st.tabs(["بحث بالمنتج", "بحث بالتاريخ"])
             
             # --- بحث المنتج مع فلترة المخزن ---
             with tab1:
@@ -453,48 +453,6 @@ def main():
                     else:
                         st.info(f"لا توجد بيانات لهذا التاريخ أو الفلتر المحدد")
             
-            # --- رسوم بيانية معبرة اضافية ---
-            with tab3:
-                st.header("رسوم بيانية معبرة")
-                st.markdown("اختر الرسم البياني المناسب لعرض ملخصات المخزون بشكل مرئي:")
-
-                chart_type = st.selectbox("اختر نوع الرسم البياني:", [
-                    "أعلى 10 منتجات حسب الكمية الإجمالية",
-                    "توزيع الكمية حسب المخزن (Pie)",
-                    "تسلسل الكميات عبر الزمن (Line)",
-                    "توزيع المنتجات حسب عدد المخازن",
-                    "توزيع المنتجات حسب عدد التواريخ",
-                    "أكثر المنتجات تواجداً في المخازن",
-                    "توزيع الكميات في جميع المخازن (Boxplot)"
-                ])
-                if st.button("عرض الرسم البياني"):
-                    if chart_type == "أعلى 10 منتجات حسب الكمية الإجمالية":
-                        top_products = data.groupby('Product')['Quantity'].sum().sort_values(ascending=False).head(10)
-                        st.bar_chart(top_products)
-                    elif chart_type == "توزيع الكمية حسب المخزن (Pie)":
-                        warehouse_totals = data.groupby('Location')['Quantity'].sum().sort_values(ascending=False)
-                        st.pyplot(pd.DataFrame({'كمية': warehouse_totals}).plot.pie(y='كمية', autopct='%.2f%%', figsize=(6, 6)).figure)
-                    elif chart_type == "تسلسل الكميات عبر الزمن (Line)":
-                        timeline = data.groupby('Date')['Quantity'].sum().reset_index()
-                        st.line_chart(timeline.set_index('Date'))
-                    elif chart_type == "توزيع المنتجات حسب عدد المخازن":
-                        product_warehouse_count = data.groupby('Product')['Location'].nunique().sort_values(ascending=False)
-                        st.bar_chart(product_warehouse_count)
-                    elif chart_type == "توزيع المنتجات حسب عدد التواريخ":
-                        product_date_count = data.groupby('Product')['Date'].nunique().sort_values(ascending=False)
-                        st.bar_chart(product_date_count)
-                    elif chart_type == "أكثر المنتجات تواجداً في المخازن":
-                        product_qty_per_warehouse = data.groupby(['Product', 'Location'])['Quantity'].sum().reset_index()
-                        pivot = product_qty_per_warehouse.pivot(index='Product', columns='Location', values='Quantity').fillna(0)
-                        st.dataframe(pivot)
-                    elif chart_type == "توزيع الكميات في جميع المخازن (Boxplot)":
-                        import matplotlib.pyplot as plt
-                        import seaborn as sns
-                        fig, ax = plt.subplots(figsize=(10,5))
-                        sns.boxplot(x='Location', y='Quantity', data=data)
-                        plt.xticks(rotation=45)
-                        st.pyplot(fig)
-        
         except Exception as e:
             st.error(f"خطأ في معالجة الملف: {str(e)}")
     else:
