@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <style>
+    :root{
+      --bg-1:#0f1724;
+      --bg-2:#0b1220;
+      --card:#0e1a2b;
+      --accent1:#7c3aed; /* purple */
+      --accent2:#06b6d4; /* cyan */
+      --accent3:#ff7ab6; /* pink */
+      --muted:#9aa6b2;
+      --glass: rgba(255,255,255,0.03);
+    }
+    *{box-sizing:border-box;font-family:"Cairo",system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue","Noto Sans Arabic",Arial;}
+    html,body{height:100%;margin:0;background:radial-gradient(900px 600px at 10% 20%, rgba(124,58,237,0.12), transparent 6%), radial-gradient(700px 450px at 95% 80%, rgba(6,182,212,0.08), transparent 20%), linear-gradient(180deg,#06121a 0%,#07121a 30%,#07121a 100%);color:#dce9f5}
+    .app{max-width:1300px;margin:24px auto;padding:20px;display:grid;grid-template-columns: 1fr;gap:18px}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between}
+    .brand{display:flex;gap:14px;align-items:center}
+    .logo{
+      width:56px;height:56px;border-radius:12px;
+      background:linear-gradient(135deg,var(--accent1),var(--accent2));
+      display:flex;align-items:center;justify-content:center;font-weight:700;
+      box-shadow:0 6px 24px rgba(7,12,22,0.6), 0 0 18px rgba(124,58,237,0.12);
+    }
+    h1{font-size:20px;margin:0}
+    .controls{display:flex;gap:10px;align-items:center}
+    .btn{
+      background:var(--glass);border:1px solid rgba(255,255,255,0.04);padding:8px 12px;border-radius:10px;color:var(--muted);cursor:pointer;display:inline-flex;gap:8px;align-items:center;
+    }
+    .btn.primary{background:linear-gradient(90deg,var(--accent2),var(--accent1));color:white;border:none;box-shadow:0 6px 22px rgba(7,12,22,0.6)}
+    .meta{color:var(--muted);font-size:13px}
+    /* grid layout */
+    .grid{
+      display:grid;
+      grid-template-columns: 360px 1fr;
+      gap:18px;
+      align-items:start;
+    }
+    /* left column */
+    .left-col{
+      display:grid;
+      gap:12px;
+      grid-auto-flow: dense; /* allow denser packing to fill gaps */
+      align-content:start;
+    }
+    .card{
+      background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border:1px solid rgba(255,255,255,0.03);
+      padding:14px;border-radius:12px;box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+      display:flex;
+      flex-direction:column;
+    }
+    .cards-row{
+      display:grid;
+      grid-template-columns:repeat(2,1fr);
+      gap:10px;
+      align-items:stretch; /* make small card(s) same height to avoid empty gaps */
+    }
+    /* allow a card in .cards-row to span both columns */
+    .status-full { grid-column: 1 / -1; }
+    .stat{display:flex;flex-direction:column;gap:6px}
+    .stat .value{font-weight:700;font-size:20px}
+    .legend{display:flex;gap:8px;flex-wrap:wrap}
+    .legend .item{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted)}
+    .dot{width:12px;height:12px;border-radius:4px}
+
+    /* charts containers */
+    .chart{height:240px; flex:1; min-height:140px}
+    .small-chart{height:180px; flex:1; min-height:120px} /* allow flex expansion so no dangling empty space */
+
+    /* right column */
+    .right-col{display:flex;flex-direction:column;gap:12px}
+    .table-controls{display:flex;gap:8px;align-items:center;justify-content:space-between}
+    .search{padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.03);color:var(--muted)}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+
+    /* --- EDITED SECTION START: TABLE HEADERS --- */
+    thead th {
+        position: sticky;
+        top: 0;
+        background: #1e293b;
+        color: #ffffff;
+        font-weight: 700;
+        padding: 10px;
+        text-align: right;
+        border-bottom: 2px solid var(--accent2);
+        z-index: 10;
+    }
+    /* --- EDITED SECTION END --- */
+
+    tbody td{padding:8px;border-bottom:1px dashed rgba(255,255,255,0.03);color:#dce9f5}
+    tbody tr:hover td{background:linear-gradient(90deg, rgba(255,255,255,0.01), rgba(255,255,255,0.02));}
+    .pill{padding:6px 8px;border-radius:999px;font-size:12px;background:rgba(255,255,255,0.03);color:var(--muted)}
+    .status-low{background:linear-gradient(90deg,#ff7ab6, #7c3aed); color:white}
+    .status-out{background:linear-gradient(90deg,#f97316,#ef4444); color:white}
+    /* footer small */
+    footer{color:var(--muted);font-size:13px;text-align:center;margin-top:8px}
+
+    /* Responsive */
+    @media (max-width:1000px){
+      .grid{grid-template-columns:1fr}
+      .left-col{order:2}
+      .right-col{order:1}
+      .cards-row{grid-template-columns:1fr} /* stack small charts on mobile */
+      .status-full { grid-column: auto; } /* don't force spanning on narrow screens */
+    }
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <header>
+      <div class="brand">
+        <div class="logo">ن</div>
+        <div>
+          <h1 id="sheetTitle">لوحة النواقص</h1>
+          <div class="meta" id="metaLine">جاري التحميل...</div>
+        </div>
+      </div>
+      <div class="controls">
+        <button class="btn" id="refreshBtn"><i class="fa-solid fa-arrows-rotate"></i> تحديث</button>
+        <button class="btn" id="exportCsvBtn"><i class="fa-regular fa-file-csv"></i> تصدير CSV</button>
+        <button class="btn primary" id="openSourceBtn"><i class="fa-solid fa-code"></i> حول العرض</button>
+      </div>
+    </header>
+
+    <section class="grid">
+      <div class="left-col">
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <div class="meta">الإجمالي</div>
+              <div style="display:flex;gap:12px;margin-top:8px;align-items:center">
+                <div class="stat">
+                  <div class="value" id="totalItems">--</div>
+                  <div class="meta">عدد الأصناف</div>
+                </div>
+                <div class="stat">
+                  <div class="value" id="sumBalance">--</div>
+                  <div class="meta">إجمالي رصيد السيستم</div>
+                </div>
+                <div class="stat">
+                  <div class="value" id="pendingOrders">--</div>
+                  <div class="meta">طلبات معلقة</div>
+                </div>
+              </div>
+            </div>
+            <div style="text-align:center">
+              <div class="meta">تم التوليد</div>
+              <div id="generatedAt" style="font-weight:700;margin-top:6px">--</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="font-weight:700">توزيع الأصناف حسب التصنيف</div>
+            <div class="meta">التصنيف</div>
+          </div>
+          <div id="pieChart" class="chart"></div>
+          <div style="margin-top:10px" id="pieLegend" class="legend"></div>
+        </div>
+
+        <!-- cards-row now used to show حالة التوافر but spanning both small columns
+             so it will occupy the small-card space AND the previous relation-chart small space -->
+        <div class="cards-row">
+          <div class="card status-full">
+            <div style="display:flex;flex-direction:column;align-items:flex-end;margin-bottom:8px">
+              <div style="font-weight:700">حالة التوافر</div>
+              <div class="meta" style="margin-top:4px">نفذت / علي وشك</div>
+            </div>
+            <div id="statusDonut" class="small-chart"></div>
+          </div>
+        </div>
+
+        <!-- large relation chart moved down to fill the empty left-bottom area -->
+        <div class="card">
+          <div style="display:flex;flex-direction:column;align-items:flex-end;margin-bottom:8px">
+            <div style="font-weight:700">علاقة التصنيف ومدة التوريد</div>
+            <div class="meta" style="margin-top:4px">متوسط أيام التوريد لكل تصنيف</div>
+          </div>
+          <div id="relationChart" class="chart"></div>
+        </div>
+
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="font-weight:700">مدة التوريد (من تاريخ الطلب)</div>
+            <div class="meta">أيام</div>
+          </div>
+          <div id="supplyDays" class="chart"></div>
+        </div>
+      </div>
+
+      <div class="right-col">
+        <div class="card">
+          <div class="table-controls" style="margin-bottom:10px">
+            <div style="display:flex;gap:8px;align-items:center">
+              <input id="searchInput" class="search" placeholder="ابحث باسم الصنف..." />
+              <select id="filterCategory" class="search">
+                <option value="">كل التصنيفات</option>
+              </select>
+              <select id="filterAvailability" class="search">
+                <option value="">كل الحالات</option>
+              </select>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <div class="meta">عرض <span id="visibleCount">--</span> من <strong id="totalCount">--</strong></div>
+            </div>
+          </div>
+
+          <div style="overflow:auto;max-height:680px">
+            <table id="dataTable" aria-live="polite">
+              <thead>
+                <tr>
+                  <th>اسم الصنف</th>
+                  <th>التصنيف</th>
+                  <th>رصيد السيستم</th>
+                  <th>الكمية المطلوبة</th>
+                  <th>توفر المنتج</th>
+                  <th>مدة التوريد (يوم)</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <footer>
+        </footer>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // Configuration
+    const API_URL = "https://script.google.com/macros/s/AKfycbzXQ-Jkb-b-Y4NR4qRfXsNlw0Ljf5pxoYFrXmTEhau4noTvKHNB03MnkkWyv-6rtO2UkQ/exec";
+
+    // Elements
+    const sheetTitleEl = document.getElementById('sheetTitle');
+    const metaLineEl = document.getElementById('metaLine');
+    const generatedAtEl = document.getElementById('generatedAt');
+    const totalItemsEl = document.getElementById('totalItems');
+    const sumBalanceEl = document.getElementById('sumBalance');
+    const pendingOrdersEl = document.getElementById('pendingOrders');
+    const visibleCountEl = document.getElementById('visibleCount');
+    const totalCountEl = document.getElementById('totalCount');
+    const pieLegendEl = document.getElementById('pieLegend');
+
+    const refreshBtn = document.getElementById('refreshBtn');
+    const exportCsvBtn = document.getElementById('exportCsvBtn');
+    const openSourceBtn = document.getElementById('openSourceBtn');
+
+    const searchInput = document.getElementById('searchInput');
+    const filterCategory = document.getElementById('filterCategory');
+    const filterAvailability = document.getElementById('filterAvailability');
+
+    const tableBody = document.querySelector('#dataTable tbody');
+
+    // ECharts instances
+    let pieChart, statusDonut, supplyDaysChart, relationChart;
+
+    function initCharts() {
+      pieChart = echarts.init(document.getElementById('pieChart'), null, {renderer: 'canvas'});
+      statusDonut = echarts.init(document.getElementById('statusDonut'), null, {renderer: 'canvas'});
+      supplyDaysChart = echarts.init(document.getElementById('supplyDays'), null, {renderer: 'canvas'});
+      relationChart = echarts.init(document.getElementById('relationChart'), null, {renderer: 'canvas'});
+
+      // Responsive
+      window.addEventListener('resize', () => {
+        pieChart.resize(); statusDonut.resize(); supplyDaysChart.resize(); relationChart.resize();
+      });
+    }
+
+    // Utility: extract first numeric value from mixed strings
+    function extractNumber(x){
+      if (x === null || x === undefined) return NaN;
+      if (typeof x === 'number') return x;
+      const str = String(x).replace(/,/g, '.');
+      const m = str.match(/-?\d+(\.\d+)?/);
+      return m ? parseFloat(m[0]) : NaN;
+    }
+
+    function formatNumber(n){
+      if (n === null || n === undefined || isNaN(n)) return "-";
+      return Math.round((n + Number.EPSILON) * 100) / 100;
+    }
+
+    // CSV export
+    function exportCSV(rows) {
+      if (!rows || !rows.length) return alert('لا توجد بيانات للتصدير');
+      const headers = Object.keys(rows[0]);
+      const csv = [
+        headers.join(','),
+        ...rows.map(r => headers.map(h => `"${String(r[h] ?? '').replace(/"/g,'""')}"`).join(','))
+      ].join('\n');
+      const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `dashboard_export_${new Date().toISOString().slice(0,10)}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    // Render functions
+    function renderPieChart(dataByCategory) {
+      const data = Object.entries(dataByCategory).map(([name, count]) => ({name, value: count}));
+      const colorPalette = ['#7c3aed','#06b6d4','#ff7ab6','#f97316','#06d6a0','#60a5fa','#f59e0b'];
+      const option = {
+        backgroundColor: 'transparent',
+        tooltip: {trigger:'item', formatter: "{b} : {c} ({d}%)"},
+        legend: {show:false},
+        series: [{
+          type:'pie',
+          radius: ['40%','70%'],
+          center:['50%','50%'],
+          avoidLabelOverlap: false,
+          label:{show:false},
+          emphasis:{itemStyle:{shadowBlur:20,shadowColor:'rgba(0,0,0,0.6)'}},
+          data,
+          color: colorPalette
+        }]
+      };
+      pieChart.setOption(option);
+
+      // legend
+      pieLegendEl.innerHTML = '';
+      data.forEach((d, i) => {
+        const div = document.createElement('div');
+        div.className = 'item';
+        div.innerHTML = '<span class="dot" style="background:' + colorPalette[i % colorPalette.length] + '"></span>' +
+                        '<div>' + (d.name || 'غير مسمى') + ' <span style="color:var(--muted);margin-inline-start:6px">(' + d.value + ')</span></div>';
+        pieLegendEl.appendChild(div);
+      });
+    }
+
+    function renderStatusDonut(statusCounts) {
+      const data = Object.entries(statusCounts).map(([k,v])=>({name:k, value:v}));
+      const colors = ['#ef4444','#f97316','#06b6d4','#7c3aed'];
+      const option = {
+        backgroundColor:'transparent',
+        tooltip:{trigger:'item', formatter:'{b} : {c} ({d}%)'},
+        series:[{
+          type:'pie',
+          radius:['45%','78%'],
+          center:['50%','50%'],
+          label:{show:false},
+          data,
+          color:colors
+        }]
+      };
+      statusDonut.setOption(option);
+    }
+
+    // Improved supply-days buckets (no duplicate labels)
+    function renderSupplyDays(daysArray) {
+      const valid = daysArray.filter(v=>!isNaN(v) && v >= 0).map(Number);
+      const max = valid.length ? Math.max(...valid) : 0;
+      const approximateBucketWidth = 5;
+      const bucketCount = Math.min(8, Math.max(4, Math.ceil((max + 1) / approximateBucketWidth)));
+      const bucketWidth = Math.max(1, Math.ceil((max + 1) / bucketCount));
+
+      const buckets = [];
+      for (let i = 0; i < bucketCount; i++) {
+        const min = i * bucketWidth;
+        const maxv = Math.max( (i+1) * bucketWidth - 1, min );
+        buckets.push({min, max: maxv, count: 0});
+      }
+
+      valid.forEach(v => {
+        const idx = Math.min(bucketCount - 1, Math.floor(v / bucketWidth));
+        buckets[idx].count++;
+      });
+
+      const categories = buckets.map(b => `${b.min}-${b.max}`);
+      const counts = buckets.map(b => b.count);
+
+      const option = {
+        backgroundColor:'transparent',
+        tooltip:{trigger:'axis', formatter: function(params){
+          const p = params[0];
+          return `${p.axisValueLabel} : ${p.data} صنف`;
+        }},
+        xAxis:{type:'category',data:categories, axisLabel:{color:'#cfe9ff'}, boundaryGap:false},
+        yAxis:{type:'value', axisLabel:{color:'#cfe9ff'}},
+        grid:{left:14,right:12,top:18,bottom:24},
+        series:[{
+          type:'line', smooth:true, data:counts,
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0, color:'rgba(124,58,237,0.28)'},{offset:1,color:'rgba(6,182,212,0.02)'}])
+          },
+          lineStyle:{width:3,color:'#7c3aed'},
+          symbolSize:8,
+          itemStyle:{color:'#7c3aed'}
+        }]
+      };
+      supplyDaysChart.setOption(option);
+    }
+
+    // Relation chart: average lead time per category (highlights the largest)
+    function renderRelationChart(avgByCategory, countsByCategory) {
+      const data = Object.keys(avgByCategory).map(cat => ({ category: cat, avg: avgByCategory[cat], count: countsByCategory[cat] || 0 }));
+      if (!data.length) {
+        relationChart.clear();
+        relationChart.setOption({title: { text: 'لا توجد بيانات', left: 'center', top: '45%', textStyle: { color: '#9aa6b2' } }});
+        return;
+      }
+      data.sort((a,b) => b.avg - a.avg);
+      const categories = data.map(d => d.category);
+      const avgs = data.map(d => Math.round(d.avg * 100) / 100);
+      const counts = data.map(d => d.count);
+      const maxIdx = avgs.indexOf(Math.max(...avgs));
+
+      const option = {
+        backgroundColor:'transparent',
+        tooltip: {
+          trigger: 'axis',
+          formatter: function(params){
+            const p = params[0];
+            const idx = p.dataIndex;
+            return `${categories[idx]}<br/>متوسط مدة التوريد: ${avgs[idx]} يوم<br/>عدد الأصناف: ${counts[idx]}`;
+          }
+        },
+        xAxis: {
+          type: 'value',
+          axisLabel: { color: '#cfe9ff' },
+          name: 'أيام (متوسط)'
+        },
+        yAxis: {
+          type: 'category',
+          data: categories,
+          axisLabel: { color: '#cfe9ff' },
+          inverse: true
+        },
+        grid:{left:16,right:18,top:10,bottom:20},
+        series: [{
+          type: 'bar',
+          data: avgs.map((v,i) => ({ value: v, itemStyle: { color: i === maxIdx ? '#ef4444' : '#06b6d4' } })),
+          label: { show: true, position: 'right', color: '#dce9f5' },
+          barMaxWidth: 18
+        }]
+      };
+      relationChart.setOption(option);
+    }
+
+    // Build table & filters
+    let allRows = [];
+    function populateFilters(categories = [], availabilities = []) {
+      const uniqueCats = [...new Set(categories)].filter(Boolean).sort();
+      const uniqueAvail = [...new Set(availabilities)].filter(Boolean).sort();
+      filterCategory.innerHTML = '<option value="">كل التصنيفات</option>' + uniqueCats.map(c => `<option value="${c}">${c}</option>`).join('');
+      filterAvailability.innerHTML = '<option value="">كل الحالات</option>' + uniqueAvail.map(a => `<option value="${a}">${a}</option>`).join('');
+    }
+
+    function renderTable(rows) {
+      tableBody.innerHTML = '';
+      rows.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td title="${r['اسم الصنف'] ?? ''}">${r['اسم الصنف'] ?? ''}</td>
+          <td>${r['التصنيف'] ?? ''}</td>
+          <td><span class="pill">${formatNumber(r['رصيد السيستم'])}</span></td>
+          <td>${r._requestedDisplay ?? ''}</td>
+          <td>${r['توفر المنتج في المعصرة'] ?? ''}</td>
+          <td>${r['مدة التوريد من تاريخ الطلب'] ?? ''}</td>
+        `;
+        tableBody.appendChild(tr);
+      });
+      visibleCountEl.textContent = rows.length;
+      totalCountEl.textContent = allRows.length;
+    }
+
+    function applyFiltersAndSearch() {
+      const q = (searchInput.value || '').trim().toLowerCase();
+      const cat = filterCategory.value;
+      const avail = filterAvailability.value;
+      const filtered = allRows.filter(r=>{
+        if (cat && (r['التصنيف'] ?? '') !== cat) return false;
+        if (avail && (r['توفر المنتج في المعصرة'] ?? '') !== avail) return false;
+        if (q){
+          const name = String(r['اسم الصنف'] ?? '').toLowerCase();
+          if (!name.includes(q)) return false;
+        }
+        return true;
+      });
+      renderTable(filtered);
+    }
+
+    // Main fetch and render
+    async function loadData() {
+      try {
+        metaLineEl.textContent = 'تحميل البيانات من الخادم...';
+        const resp = await fetch(API_URL, {cache: 'no-store'});
+        if (!resp.ok) throw new Error('فشل في الوصول إلى الـ API: ' + resp.status);
+        const json = await resp.json();
+
+        // set header info
+        sheetTitleEl.textContent = json.sheetName || 'لوحة النواقص';
+        generatedAtEl.textContent = new Date(json.generatedAt || Date.now()).toLocaleString('ar-EG', {dateStyle:'medium', timeStyle:'short'});
+        metaLineEl.textContent = `صفوف: ${json.rowCount ?? (json.rows?.length ?? 0)} · تم التحديث تلقائياً`;
+
+        const rawRows = Array.isArray(json.rows) ? json.rows : [];
+        // Normalize rows, parse numeric fields
+        allRows = rawRows.map(r=>{
+          const parsed = {...r};
+          parsed._barcode = r['الباركود \\ مرجع داخلي'];
+          parsed._lastSupplied = extractNumber(r['اخر كمية تم توريدها']);
+          parsed._requested = extractNumber(r['الكمية المطلوبة']);
+          parsed._requestedDisplay = r['الكمية المطلوبة'] ?? '';
+          parsed['رصيد السيستم'] = extractNumber(r['رصيد السيستم']);
+          parsed['مدة التوريد من تاريخ الطلب'] = (() => {
+            const v = extractNumber(r['مدة التوريد من تاريخ الطلب']);
+            return isNaN(v) ? '' : v;
+          })();
+          return parsed;
+        });
+
+        // KPIs
+        totalItemsEl.textContent = allRows.length;
+        const sumBalance = allRows.reduce((s,r)=> s + (isNaN(r['رصيد السيستم'])?0:r['رصيد السيستم']), 0);
+        sumBalanceEl.textContent = formatNumber(sumBalance);
+
+        const pendingCount = allRows.filter(r => String(r['حالة الطلب'] ?? '').includes('تم الطلب')).length;
+        pendingOrdersEl.textContent = pendingCount;
+
+        // Aggregations
+        const byCategory = {};
+        const availability = {};
+        const statusCounts = {};
+        const supplyDays = [];
+        const supplyDaysByCategory = {}; // {cat: {sum, count}}
+        const countsByCategory = {}; // total items per category
+
+        allRows.forEach(r=>{
+          const cat = r['التصنيف'] || 'غير محدد';
+          byCategory[cat] = (byCategory[cat] || 0) + 1;
+          countsByCategory[cat] = (countsByCategory[cat] || 0) + 1;
+
+          const avail = r['توفر المنتج في المعصرة'] || 'غير محدد';
+          availability[avail] = (availability[avail] || 0) + 1;
+          const st = r['حالة الطلب'] || 'غير معروف';
+          statusCounts[st] = (statusCounts[st] || 0) + 1;
+          if (r['مدة التوريد من تاريخ الطلب'] !== '') {
+            const val = Number(r['مدة التوريد من تاريخ الطلب']) || 0;
+            supplyDays.push(val);
+
+            if (!supplyDaysByCategory[cat]) supplyDaysByCategory[cat] = { sum: 0, count: 0 };
+            supplyDaysByCategory[cat].sum += val;
+            supplyDaysByCategory[cat].count += 1;
+          }
+        });
+
+        // prepare average lead time per category
+        const avgByCategory = {};
+        Object.keys(supplyDaysByCategory).forEach(cat => {
+          const rec = supplyDaysByCategory[cat];
+          avgByCategory[cat] = rec.count ? (rec.sum / rec.count) : 0;
+        });
+
+        // Render charts
+        renderPieChart(byCategory);
+        renderStatusDonut(statusCounts);
+        renderSupplyDays(supplyDays);
+        renderRelationChart(avgByCategory, countsByCategory);
+
+        // Fill table & filters
+        populateFilters(Object.keys(byCategory), Object.keys(availability));
+        renderTable(allRows);
+
+        // Save for export
+        window.__DASH_ROWS = rawRows;
+
+        metaLineEl.textContent = `تم تحميل البيانات بنجاح · ${new Date().toLocaleTimeString('ar-EG')}`;
+
+      } catch (err) {
+        console.error(err);
+        metaLineEl.textContent = 'خطأ عند تحميل البيانات: ' + (err.message || err);
+        sheetTitleEl.textContent = 'لوحة النواقص (خطأ)';
+      }
+    }
+
+    // Events
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.disabled = true;
+      refreshBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري...';
+      await loadData();
+      refreshBtn.disabled = false;
+      refreshBtn.innerHTML = '<i class="fa-solid fa-arrows-rotate"></i> تحديث';
+    });
+
+    exportCsvBtn.addEventListener('click', () => {
+      exportCSV(window.__DASH_ROWS || []);
+    });
+
+    openSourceBtn.addEventListener('click', () => {
+      alert('هذه صفحة HTML مستقلة تعرض لوحة بيانات من Google Sheets عبر API.\nيمكنك تعديل الملف محلياً أو إضافيته إلى سيرفر.');
+    });
+
+    searchInput.addEventListener('input', applyFiltersAndSearch);
+    filterCategory.addEventListener('change', applyFiltersAndSearch);
+    filterAvailability.addEventListener('change', applyFiltersAndSearch);
+
+    // Init
+    initCharts();
+    loadData();
+
+    // Auto refresh every 5 minutes (optional)
+    setInterval(() => {
+      loadData();
+    }, 5 * 60 * 1000);
+  </script>
+</body>
+</html>
